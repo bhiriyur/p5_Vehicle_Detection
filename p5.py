@@ -94,6 +94,8 @@ def draw_labeled_bboxes(img, labels):
         cv2.rectangle(img, bbox[0], bbox[1], (0, 0, 255), 6)
     # Return the image
     return img
+
+
 #######################################################################################
 # PIPELINE CLASS
 #######################################################################################
@@ -114,27 +116,27 @@ class VehicleDetector(object):
         self.colorspace = 'YCrCb'
         self.hog_channel = 2
         self.classifier = None
-        self.X_scaler = None
+        self.x_scaler = None
         self.heatmap = []
 
         return
 
     def classify(self, load_file=None):
 
-        if load_file != None:
+        if load_file is not None:
             print("Loading Classifier...")
             data = pickle.load(open(load_file, 'rb'))
-            self.svc = data[0]
-            self.X_scaler = data[1]
+            self.classifier = data[0]
+            self.x_scaler = data[1]
             return data
 
         print("Training Classifier...")
         # Prepare Data
         cars = glob.glob('datasets/vehicles/KITTI_extracted/*.png')
         notcars = glob.glob('datasets/non-vehicles/GTI/*.png')
-        #notcars += glob.glob('datasets/non-vehicles/Extras/*.png')
+        # notcars += glob.glob('datasets/non-vehicles/Extras/*.png')
 
-        print("{} Cars, {} notcars".format(len(cars),len(notcars)))
+        print("{} Cars, {} notcars".format(len(cars), len(notcars)))
 
         t = time.time()
         car_features = self.extract_features(cars)
@@ -143,51 +145,51 @@ class VehicleDetector(object):
         print(round(t2 - t, 2), 'Seconds to extract HOG features...')
 
         # Create an array stack of feature vectors
-        X = np.vstack((car_features, notcar_features)).astype(np.float64)
+        x = np.vstack((car_features, notcar_features)).astype(np.float64)
 
         # Define the labels vector
         y = np.hstack((np.ones(len(car_features)), np.zeros(len(notcar_features))))
 
-        print ("New-shape = {}".format(X.shape))
+        print("New-shape = {}".format(x.shape))
         # Fit a per-column scaler
-        X_scaler = StandardScaler().fit(X)
+        x_scaler = StandardScaler().fit(x)
         # Apply the scaler to X
-        scaled_X = X_scaler.transform(X)
+        scaled_x = x_scaler.transform(x)
 
         # Split to training/test sets
         rand_state = np.random.randint(0, 100)
-        X_train, X_test, y_train, y_test = train_test_split(
-            scaled_X, y, test_size=0.2, random_state=rand_state)
+        x_train, x_test, y_train, y_test = train_test_split(
+            scaled_x, y, test_size=0.2, random_state=rand_state)
 
         # Initialize and train a classifier
         print('Using:', self.orient, 'orientations', self.pixels_per_cell,
               'pixels per cell and', self.cells_per_block, 'cells per block')
-        print('Feature vector length:', len(X_train[0]))
+        print('Feature vector length:', len(x_train[0]))
 
         # Use a linear SVC
         svc = LinearSVC()
 
         # Check the training time for the SVC
         t = time.time()
-        svc.fit(X_train, y_train)
+        svc.fit(x_train, y_train)
         t2 = time.time()
         print(round(t2 - t, 2), 'Seconds to train SVC...')
 
         # Check the score of the SVC
-        print('Test Accuracy of SVC = ', round(svc.score(X_test, y_test), 4))
+        print('Test Accuracy of SVC = ', round(svc.score(x_test, y_test), 4))
         # Check the prediction time for a single sample
         t = time.time()
         n_predict = 10
-        print('My SVC predicts:     ', svc.predict(X_test[0:n_predict]))
+        print('My SVC predicts:     ', svc.predict(x_test[0:n_predict]))
         print('For these', n_predict, 'labels: ', y_test[0:n_predict])
         t2 = time.time()
         print(round(t2 - t, 5), 'Seconds to predict', n_predict, 'labels with SVC')
 
         # Save to pickle file
-        pickle.dump([svc, X_scaler], open('classifier.pkl', 'wb'))
+        pickle.dump([svc, x_scaler], open('classifier.pkl', 'wb'))
 
         self.classifier = svc
-        self.X_scaler = X_scaler
+        self.x_scaler = x_scaler
 
         return svc
 
@@ -202,7 +204,7 @@ class VehicleDetector(object):
             if self.colorspace != 'RGB':
                 if self.colorspace == 'HSV':
                     feature_image = cv2.cvtColor(image, cv2.COLOR_RGB2HSV)
-                elif self.colorspace== 'LUV':
+                elif self.colorspace == 'LUV':
                     feature_image = cv2.cvtColor(image, cv2.COLOR_RGB2LUV)
                 elif self.colorspace == 'HLS':
                     feature_image = cv2.cvtColor(image, cv2.COLOR_RGB2HLS)
@@ -257,7 +259,8 @@ class VehicleDetector(object):
         # Define blocks and steps as above
         nxblocks = (ch1.shape[1] // self.pixels_per_cell) - 1
         nyblocks = (ch1.shape[0] // self.pixels_per_cell) - 1
-        nfeat_per_block = self.orient * self.cells_per_block ** 2
+        # nfeat_per_block = self.orient * self.cells_per_block ** 2
+
         # 64 was the orginal sampling rate, with 8 cells and 8 pix per cell
         window = 64
         nblocks_per_window = (window // self.pixels_per_cell) - 1
@@ -287,7 +290,7 @@ class VehicleDetector(object):
                     hog_features = hog_feat1
                 elif self.hog_channel == 1:
                     hog_features = hog_feat2
-                elif self.hog_channel == 2:
+                else:
                     hog_features = hog_feat3
 
                 xleft = xpos * self.pixels_per_cell
@@ -301,9 +304,9 @@ class VehicleDetector(object):
                 hist_features = color_hist(subimg, nbins=self.hist_bins)
 
                 # Scale features and make a prediction
-                test_features = self.X_scaler.transform(np.concatenate((spatial_features, hist_features, hog_features)))
+                test_features = self.x_scaler.transform(np.concatenate((spatial_features, hist_features, hog_features)))
 
-                test_prediction = self.svc.predict(test_features)
+                test_prediction = self.classifier.predict(test_features)
 
                 if test_prediction == 1:
                     xbox_left = np.int(xleft * scale)
