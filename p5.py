@@ -1,17 +1,17 @@
-import matplotlib.image as mpimg
-import matplotlib.pyplot as plt
-import numpy as np
+import glob
+import os
 import pickle
 import time
-import cv2
-import glob
-from moviepy.editor import VideoFileClip
 
+import cv2
+import matplotlib.image as mpimg
+import numpy as np
+from moviepy.editor import VideoFileClip
+from scipy.ndimage.measurements import label
 from skimage.feature import hog
 from sklearn.model_selection import train_test_split
-from sklearn.svm import LinearSVC
 from sklearn.preprocessing import StandardScaler
-from scipy.ndimage.measurements import label
+from sklearn.svm import LinearSVC
 
 
 #######################################################################################
@@ -80,20 +80,81 @@ def apply_threshold(heatmap, threshold):
     return heatmap
 
 
-def draw_labeled_bboxes(img, labels):
-    # Iterate through all detected cars
-    for car_number in range(1, labels[1] + 1):
-        # Find pixels with each car_number label value
-        nonzero = (labels[0] == car_number).nonzero()
-        # Identify x and y values of those pixels
-        nonzeroy = np.array(nonzero[0])
-        nonzerox = np.array(nonzero[1])
-        # Define a bounding box based on min/max x and y
-        bbox = ((np.min(nonzerox), np.min(nonzeroy)), (np.max(nonzerox), np.max(nonzeroy)))
-        # Draw the box on the image
-        cv2.rectangle(img, bbox[0], bbox[1], (0, 0, 255), 6)
-    # Return the image
-    return img
+def slide_window(img, x_start_stop=(None, None), y_start_stop=(None, None),
+                 xy_window=(64, 64), xy_overlap=(0.5, 0.5)):
+    """
+    :rtype: list
+    """
+    # If x and/or y start/stop positions not defined, set to image size
+    if x_start_stop[0] is None:
+        x_start_stop[0] = 0
+    if x_start_stop[1] is None:
+        x_start_stop[1] = img.shape[1]
+    if y_start_stop[0] is None:
+        y_start_stop[0] = 0
+    if y_start_stop[1] is None:
+        y_start_stop[1] = img.shape[0]
+    # Compute the span of the region to be searched
+    xspan = x_start_stop[1] - x_start_stop[0]
+    yspan = y_start_stop[1] - y_start_stop[0]
+    # Compute the number of pixels per step in x/y
+    nx_pix_per_step = np.int(xy_window[0] * (1 - xy_overlap[0]))
+    ny_pix_per_step = np.int(xy_window[1] * (1 - xy_overlap[1]))
+    # Compute the number of windows in x/y
+    nx_buffer = np.int(xy_window[0] * (xy_overlap[0]))
+    ny_buffer = np.int(xy_window[1] * (xy_overlap[1]))
+    nx_windows = np.int((xspan - nx_buffer) / nx_pix_per_step)
+    ny_windows = np.int((yspan - ny_buffer) / ny_pix_per_step)
+    # Initialize a list to append window positions to
+    window_list = []
+    # Loop through finding x and y window positions
+    # Note: you could vectorize this step, but in practice
+    # you'll be considering windows one by one with your
+    # classifier, so looping makes sense
+    for ys in range(ny_windows):
+        for xs in range(nx_windows):
+            # Calculate window position
+            startx = xs * nx_pix_per_step + x_start_stop[0]
+            endx = startx + xy_window[0]
+            starty = ys * ny_pix_per_step + y_start_stop[0]
+            endy = starty + xy_window[1]
+
+            # Append window position to list
+            window_list.append(((startx, starty), (endx, endy)))
+    # Return the list of windows
+    return window_list
+
+
+def draw_boxes(img, bboxes, color=(0, 0, 255), thick=6):
+    """Define a function to draw bounding boxes"""
+    # Make a copy of the image
+    imcopy = np.copy(img)
+    # Iterate through the bounding boxes
+    for bbox in bboxes:
+        # Draw a rectangle given bbox coordinates
+        cv2.rectangle(imcopy, bbox[0], bbox[1], color, thick)
+    # Return the image copy with boxes drawn
+    return imcopy
+
+
+def diag_screen(main_img, diag1=None, diag2=None, diag3=None, diag4=None):
+    diag_window = np.zeros((960, 1280, 3), np.uint8)
+    diag_window[:720, :1280] = main_img
+
+    # Bottom screens
+    if diag1 is not None:
+        diag_window[720:960, 0:320] = cv2.resize(diag1, (320, 240), interpolation=cv2.INTER_AREA)
+
+    if diag2 is not None:
+        diag_window[720:960, 320:640] = cv2.resize(diag2, (320, 240), interpolation=cv2.INTER_AREA)
+
+    if diag3 is not None:
+        diag_window[720:960, 640:960] = cv2.resize(diag3, (320, 240), interpolation=cv2.INTER_AREA)
+
+    if diag4 is not None:
+        diag_window[720:960, 960:1280] = cv2.resize(diag4, (320, 240), interpolation=cv2.INTER_AREA)
+
+    return diag_window
 
 
 #######################################################################################
@@ -117,24 +178,41 @@ class VehicleDetector(object):
         self.hog_channel = 2
         self.classifier = None
         self.x_scaler = None
-        self.heatmap = []
+        self.saved_bboxes = []
+        self.num_heatmaps = 10
+        self.saved_heatmaps = None
+        self.heat_threshold = 1.0
+        self.xy_window = (64, 64)
+        self.xy_overlap = (0.5, 0.5)
+        self.ystart = 400
+        self.ystop = 700
+        self.scale = 1.0
+        self.cells_per_step = 2  # Instead of overlap, define how many cells to step
+        self.algo = 'sliding'  # options are 'sliding' or 'subsample' or 'haar'
+        self.car_cascade = None
 
         return
 
     def classify(self, load_file=None):
 
         if load_file is not None:
-            print("Loading Classifier...")
-            data = pickle.load(open(load_file, 'rb'))
-            self.classifier = data[0]
-            self.x_scaler = data[1]
-            return data
+            if os.path.isfile(load_file):
+                print("Loading Classifier...")
+                data = pickle.load(open(load_file, 'rb'))
+                self.classifier = data[0]
+                self.x_scaler = data[1]
+                return data
 
         print("Training Classifier...")
         # Prepare Data
         cars = glob.glob('datasets/vehicles/KITTI_extracted/*.png')
+        cars += glob.glob('datasets/vehicles/GTI_Far/*.png')
+        cars += glob.glob('datasets/vehicles/GTI_Left/*.png')
+        cars += glob.glob('datasets/vehicles/GTI_MiddleClose/*.png')
+        cars += glob.glob('datasets/vehicles/GTI_Right/*.png')
+
         notcars = glob.glob('datasets/non-vehicles/GTI/*.png')
-        # notcars += glob.glob('datasets/non-vehicles/Extras/*.png')
+        notcars += glob.glob('datasets/non-vehicles/Extras/*.png')
 
         print("{} Cars, {} notcars".format(len(cars), len(notcars)))
 
@@ -150,7 +228,7 @@ class VehicleDetector(object):
         # Define the labels vector
         y = np.hstack((np.ones(len(car_features)), np.zeros(len(notcar_features))))
 
-        print("New-shape = {}".format(x.shape))
+        print("(Number-of-samples, feature-vec-length) = {}".format(x.shape))
         # Fit a per-column scaler
         x_scaler = StandardScaler().fit(x)
         # Apply the scaler to X
@@ -193,13 +271,16 @@ class VehicleDetector(object):
 
         return svc
 
-    def extract_features(self, imgs):
+    def extract_features(self, imgs, files=True):
         # Create a list to append feature vectors to
         features = []
         # Iterate through the list of images
         for file in imgs:
             # Read in each one by one
-            image = mpimg.imread(file)
+            if files:
+                image = mpimg.imread(file)
+            else:
+                image = file
             # apply color conversion if other than 'RGB'
             if self.colorspace != 'RGB':
                 if self.colorspace == 'HSV':
@@ -242,15 +323,56 @@ class VehicleDetector(object):
         # Return list of feature vectors
         return features
 
-    def find_cars(self, img, ystart=400, ystop=700, scale=1.0):
+    def search_windows(self, img, windows):
+
+        # 1) Create an empty list to receive positive detection windows
+        on_windows = []
+        # 2) Iterate over all windows in the list
+        imgs = []
+        for window in windows:
+            # 3) Extract the test window from original image
+            test_img = cv2.resize(img[window[0][1]:window[1][1], window[0][0]:window[1][0]], (64, 64))
+            # 4) Extract features for that window using single_img_features()
+            imgs.append(test_img)
+
+        features = self.extract_features(imgs, files=False)
+        # 5) Transform the features
+        test_features = self.x_scaler.transform(features)
+
+        # 6) Predict using your classifier
+        predictions = self.classifier.predict(test_features)
+
+        for i, window in enumerate(windows):
+            # 7) If positive (prediction == 1) then save the window
+            if predictions[i] == 1:
+                on_windows.append(window)
+        # 8) Return windows for positive detections
+        return on_windows
+
+    def find_cars_sliding(self, img):
         draw_img = np.copy(img)
         img = img.astype(np.float32) / 255
 
-        img_tosearch = img[ystart:ystop, :, :]
+        windows = slide_window(img, x_start_stop=(None, None), y_start_stop=(self.ystart, self.ystop),
+                               xy_window=self.xy_window, xy_overlap=self.xy_overlap)
+
+        bbox_list = self.search_windows(img, windows)
+
+        # window_img = draw_boxes(draw_img, hot_windows, color=(0, 0, 255), thick=6)
+        diag_window = self.heatmap_filter(draw_img, bbox_list)
+
+        return diag_window
+
+    def find_cars_subsample(self, img):
+        draw_img = np.copy(img)
+        img = img.astype(np.float32) / 255
+
+        img_tosearch = img[self.ystart:self.ystop, :, :]
         ctrans_tosearch = convert_color(img_tosearch, "RGB2{}".format(self.colorspace))
-        if scale != 1:
+        if self.scale != 1:
             imshape = ctrans_tosearch.shape
-            ctrans_tosearch = cv2.resize(ctrans_tosearch, (np.int(imshape[1] / scale), np.int(imshape[0] / scale)))
+            ctrans_tosearch = cv2.resize(ctrans_tosearch, (np.int(imshape[1] / self.scale),
+                                                           np.int(imshape[0] / self.scale)))
 
         ch1 = ctrans_tosearch[:, :, 0]
         ch2 = ctrans_tosearch[:, :, 1]
@@ -264,9 +386,8 @@ class VehicleDetector(object):
         # 64 was the orginal sampling rate, with 8 cells and 8 pix per cell
         window = 64
         nblocks_per_window = (window // self.pixels_per_cell) - 1
-        cells_per_step = 2  # Instead of overlap, define how many cells to step
-        nxsteps = (nxblocks - nblocks_per_window) // cells_per_step
-        nysteps = (nyblocks - nblocks_per_window) // cells_per_step
+        nxsteps = (nxblocks - nblocks_per_window) // self.cells_per_step
+        nysteps = (nyblocks - nblocks_per_window) // self.cells_per_step
 
         # Compute individual channel HOG features for the entire image
         hog1 = get_hog_features(ch1, self.orient, self.pixels_per_cell, self.cells_per_block, feature_vec=False)
@@ -274,11 +395,10 @@ class VehicleDetector(object):
         hog3 = get_hog_features(ch3, self.orient, self.pixels_per_cell, self.cells_per_block, feature_vec=False)
 
         bbox_list = []
-        heat = np.zeros_like(img[:, :, 0]).astype(np.float)
         for xb in range(nxsteps):
             for yb in range(nysteps):
-                ypos = yb * cells_per_step
-                xpos = xb * cells_per_step
+                ypos = yb * self.cells_per_step
+                xpos = xb * self.cells_per_step
 
                 # Extract HOG for this patch
                 hog_feat1 = hog1[ypos:ypos + nblocks_per_window, xpos:xpos + nblocks_per_window].ravel()
@@ -309,26 +429,120 @@ class VehicleDetector(object):
                 test_prediction = self.classifier.predict(test_features)
 
                 if test_prediction == 1:
-                    xbox_left = np.int(xleft * scale)
-                    ytop_draw = np.int(ytop * scale)
-                    win_draw = np.int(window * scale)
+                    xbox_left = np.int(xleft * self.scale)
+                    ytop_draw = np.int(ytop * self.scale)
+                    win_draw = np.int(window * self.scale)
                     # cv2.rectangle(draw_img, (xbox_left, ytop_draw + ystart),
                     #               (xbox_left + win_draw, ytop_draw + win_draw + ystart), (0, 0, 255), 6)
-                    bbox_list.append([(xbox_left, ytop_draw + ystart),
-                                      (xbox_left + win_draw, ytop_draw + win_draw + ystart)])
+                    bbox_list.append([(xbox_left, ytop_draw + self.ystart),
+                                      (xbox_left + win_draw, ytop_draw + win_draw + self.ystart)])
+
+        diag_window = self.heatmap_filter(draw_img, bbox_list)
+
+        return diag_window
+
+    def heatmap_filter(self, img, bbox_list):
+
+        heat = np.zeros_like(img[:, :, 0]).astype(np.float)
+        draw_img = np.copy(img)
 
         # Add heat to each box in box list
         heat = add_heat(heat, bbox_list)
 
+        ####################################################
+        # Apply temporal filter
+        ####################################################
+        if self.frameid == 0:
+            shape = (heat.shape[0], heat.shape[1], self.num_heatmaps)
+            self.saved_heatmaps = np.zeros(shape)
+
+        idx = self.frameid % self.num_heatmaps
+        self.frameid += 1
+        self.saved_heatmaps[:, :, idx] = heat
+
+        avg_heat = np.sum(self.saved_heatmaps, axis=2)
+
+        # print("idx = {}, Heat range = {} {}".format(idx, np.min(avg_heat), np.max(avg_heat)))
+
         # Apply threshold to help remove false positives
-        heat = apply_threshold(heat, 1)
+        # print("Min = {}, Max = {}, Threshold = {}".format(np.min(heat), np.max(heat), self.heat_threshold))
+        avg_heat_thres = apply_threshold(avg_heat, self.heat_threshold)
 
         # Visualize the heatmap when displaying
-        heatmap = np.clip(heat, 0, 255)
+        # heatmap = np.clip(heat, 0, 255)
+        heatmap_img = 255 * np.stack((avg_heat, 0 * avg_heat, 0 * avg_heat), axis=2) / np.max(avg_heat)
 
         # Find final boxes from heatmap using label function
-        labels = label(heatmap)
-        draw_img = draw_labeled_bboxes(draw_img, labels)
+        labels = label(avg_heat_thres)
+
+        ####################################################
+
+        draw_img = self.draw_labeled_bboxes(draw_img, labels)
+
+        # Build diag-screen
+        draw_img = diag_screen(draw_img, heatmap_img)
+
+        return draw_img
+
+    def bbox_filter(self, new):
+
+        if len(self.saved_bboxes) == 0:
+            return False
+
+        x1n, y1n = new[0]
+        x2n, y2n = new[1]
+
+        for old in self.saved_bboxes:
+            x1o, y1o = old[0]
+            x2o, y2o = old[1]
+
+            # Check if bounding boxes intersect
+            if x2n < x1o or x1n > x2o or y2n < y1o or y1n > y2o:
+                # Look for next
+                continue
+            else:
+                return True
+
+        return False
+
+    def draw_labeled_bboxes(self, img, labels):
+        # Iterate through all detected cars
+        new_bboxes = []
+
+        for car_number in range(1, labels[1] + 1):
+            # Find pixels with each car_number label value
+            nonzero = (labels[0] == car_number).nonzero()
+            # Identify x and y values of those pixels
+            nonzeroy = np.array(nonzero[0])
+            nonzerox = np.array(nonzero[1])
+            # Define a bounding box based on min/max x and y
+            bbox = ((np.min(nonzerox), np.min(nonzeroy)), (np.max(nonzerox), np.max(nonzeroy)))
+            new_bboxes.append(bbox)
+
+            if self.bbox_filter(bbox):
+                # Draw the box on the image
+                cv2.rectangle(img, bbox[0], bbox[1], (0, 0, 255), 6)
+
+        self.saved_bboxes = new_bboxes
+        # Return the image
+        return img
+
+    def haar_classifier(self, img):
+
+        draw_img = np.copy(img)
+
+        if self.car_cascade is None:
+            cascade_src = 'cars.xml'
+            self.car_cascade = cv2.CascadeClassifier(cascade_src)
+
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gray[:self.ystart] = 0
+        gray[self.ystop:] = 0
+
+        cars = self.car_cascade.detectMultiScale(gray, 1.1, 1)
+
+        for (x, y, w, h) in cars:
+            cv2.rectangle(draw_img, (x, y), (x + w, y + h), (0, 0, 255), 2)
 
         return draw_img
 
@@ -339,7 +553,15 @@ class VehicleDetector(object):
             self.clip = self.clip.subclip(start_stop[0], start_stop[1])
 
         # Process the pipeline
-        white_clip = self.clip.fl_image(self.find_cars)
+        if self.algo == 'sliding':
+            func = self.find_cars_sliding
+        elif self.algo == 'subsample':
+            func = self.find_cars_subsample
+        elif self.algo == 'haar':
+            func = self.haar_classifier
+        else:
+            raise ValueError("Invalid algo = {}".format(self.algo))
+        white_clip = self.clip.fl_image(func)
 
         if preview:
             white_clip.preview(fps=25)
@@ -357,7 +579,14 @@ if __name__ == '__main__':
     V = VehicleDetector('project_video.mp4')
     V.classify(load_file='classifier.pkl')
 
-    V.video_process(preview=False, save_output=True)
+    V.algo = 'sliding'
+    V.heat_threshold = 5
+    # Below options only matters if V.algo == 'subsample'
+    V.cells_per_step = 2
+    V.scale = 1.2
+
+    V.video_process(start_stop=None, preview=False, save_output=True)
+    # V.video_process(start_stop=(6, 10), preview=True, save_output=False)
 
     # for test_img in glob.glob('test_images/*.jpg'):
     #     img = mpimg.imread(test_img)
