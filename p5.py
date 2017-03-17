@@ -175,7 +175,7 @@ class VehicleDetector(object):
         self.pixels_per_cell = 8
         self.cells_per_block = 2
         self.colorspace = 'YCrCb'
-        self.hog_channel = 2
+        self.hog_channel = 'ALL'
         self.classifier = None
         self.x_scaler = None
         self.saved_bboxes = []
@@ -193,7 +193,7 @@ class VehicleDetector(object):
 
         return
 
-    def classify(self, load_file=None):
+    def classify(self, load_file=None, C=1.0):
 
         if load_file is not None:
             if os.path.isfile(load_file):
@@ -245,7 +245,7 @@ class VehicleDetector(object):
         print('Feature vector length:', len(x_train[0]))
 
         # Use a linear SVC
-        svc = LinearSVC()
+        svc = LinearSVC(C=C)
 
         # Check the training time for the SVC
         t = time.time()
@@ -254,7 +254,8 @@ class VehicleDetector(object):
         print(round(t2 - t, 2), 'Seconds to train SVC...')
 
         # Check the score of the SVC
-        print('Test Accuracy of SVC = ', round(svc.score(x_test, y_test), 4))
+        print('Test Accuracy of SVC = {}. Penalty = {}'.format(round(svc.score(x_test, y_test), 4), C))
+
         # Check the prediction time for a single sample
         t = time.time()
         n_predict = 10
@@ -363,16 +364,33 @@ class VehicleDetector(object):
 
         return diag_window
 
-    def find_cars_subsample(self, img):
+    def find_cars_subsample_multiscale(self, img, scales=(1.0, 1.2, 1.5, 2.0)):
+        bbox_list = []
+        draw_img = np.copy(img)
+        for scale in scales:
+            bbox_list = self.find_cars_subsample(img, scale=scale, bbox_list=bbox_list)
+        diag_window = self.heatmap_filter(draw_img, bbox_list)
+        return diag_window
+
+    def find_cars_subsample(self, img, scale=None, bbox_list=None):
         draw_img = np.copy(img)
         img = img.astype(np.float32) / 255
 
+        if scale is None:
+            scale = self.scale
+
+        if bbox_list is None:
+            bbox_list = []
+            sendbbox = False
+        else:
+            sendbbox = True
+
         img_tosearch = img[self.ystart:self.ystop, :, :]
         ctrans_tosearch = convert_color(img_tosearch, "RGB2{}".format(self.colorspace))
-        if self.scale != 1:
+        if scale != 1:
             imshape = ctrans_tosearch.shape
-            ctrans_tosearch = cv2.resize(ctrans_tosearch, (np.int(imshape[1] / self.scale),
-                                                           np.int(imshape[0] / self.scale)))
+            ctrans_tosearch = cv2.resize(ctrans_tosearch, (np.int(imshape[1] / scale),
+                                                           np.int(imshape[0] / scale)))
 
         ch1 = ctrans_tosearch[:, :, 0]
         ch2 = ctrans_tosearch[:, :, 1]
@@ -394,7 +412,6 @@ class VehicleDetector(object):
         hog2 = get_hog_features(ch2, self.orient, self.pixels_per_cell, self.cells_per_block, feature_vec=False)
         hog3 = get_hog_features(ch3, self.orient, self.pixels_per_cell, self.cells_per_block, feature_vec=False)
 
-        bbox_list = []
         for xb in range(nxsteps):
             for yb in range(nysteps):
                 ypos = yb * self.cells_per_step
@@ -429,17 +446,17 @@ class VehicleDetector(object):
                 test_prediction = self.classifier.predict(test_features)
 
                 if test_prediction == 1:
-                    xbox_left = np.int(xleft * self.scale)
-                    ytop_draw = np.int(ytop * self.scale)
-                    win_draw = np.int(window * self.scale)
-                    # cv2.rectangle(draw_img, (xbox_left, ytop_draw + ystart),
-                    #               (xbox_left + win_draw, ytop_draw + win_draw + ystart), (0, 0, 255), 6)
+                    xbox_left = np.int(xleft * scale)
+                    ytop_draw = np.int(ytop * scale)
+                    win_draw = np.int(window * scale)
                     bbox_list.append([(xbox_left, ytop_draw + self.ystart),
                                       (xbox_left + win_draw, ytop_draw + win_draw + self.ystart)])
 
-        diag_window = self.heatmap_filter(draw_img, bbox_list)
-
-        return diag_window
+        if sendbbox:
+            return bbox_list
+        else:
+            diag_window = self.heatmap_filter(draw_img, bbox_list)
+            return diag_window
 
     def heatmap_filter(self, img, bbox_list):
 
@@ -465,7 +482,6 @@ class VehicleDetector(object):
         # print("idx = {}, Heat range = {} {}".format(idx, np.min(avg_heat), np.max(avg_heat)))
 
         # Apply threshold to help remove false positives
-        # print("Min = {}, Max = {}, Threshold = {}".format(np.min(heat), np.max(heat), self.heat_threshold))
         avg_heat_thres = apply_threshold(avg_heat, self.heat_threshold)
 
         # Visualize the heatmap when displaying
@@ -556,7 +572,7 @@ class VehicleDetector(object):
         if self.algo == 'sliding':
             func = self.find_cars_sliding
         elif self.algo == 'subsample':
-            func = self.find_cars_subsample
+            func = self.find_cars_subsample_multiscale
         elif self.algo == 'haar':
             func = self.haar_classifier
         else:
@@ -577,13 +593,13 @@ class VehicleDetector(object):
 if __name__ == '__main__':
     # Load video and call pipeline
     V = VehicleDetector('project_video.mp4')
-    V.classify(load_file='classifier.pkl')
+    V.classify(load_file='classifier.pkl', C=0.001) #'classifier.pkl'
 
-    V.algo = 'sliding'
-    V.heat_threshold = 5
+    V.algo = 'subsample'
+    V.heat_threshold = 15
     # Below options only matters if V.algo == 'subsample'
     V.cells_per_step = 2
-    V.scale = 1.2
+    # V.scale = 1.2
 
     V.video_process(start_stop=None, preview=False, save_output=True)
     # V.video_process(start_stop=(6, 10), preview=True, save_output=False)
