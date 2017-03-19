@@ -354,7 +354,7 @@ class VehicleDetector(object):
         draw_img = np.copy(img)
         img = img.astype(np.float32) / 255
 
-        windows = slide_window(img, x_start_stop=(None, None), y_start_stop=(self.ystart, self.ystop),
+        windows = slide_window(img, x_start_stop=[None, None], y_start_stop=[self.ystart, self.ystop],
                                xy_window=self.xy_window, xy_overlap=self.xy_overlap)
 
         bbox_list = self.search_windows(img, windows)
@@ -593,7 +593,7 @@ class VehicleDetector(object):
 if __name__ == '__main__':
     # Load video and call pipeline
     V = VehicleDetector('project_video.mp4')
-    V.classify(load_file='classifier.pkl', C=0.001) #'classifier.pkl'
+    V.classify(load_file='classifier.pkl', C=0.001)
 
     V.algo = 'subsample'
     V.heat_threshold = 15
@@ -601,8 +601,8 @@ if __name__ == '__main__':
     V.cells_per_step = 2
     # V.scale = 1.2
 
-    V.video_process(start_stop=None, preview=False, save_output=True)
-    # V.video_process(start_stop=(6, 10), preview=True, save_output=False)
+    # V.video_process(start_stop=None, preview=False, save_output=True)
+    V.video_process(start_stop=(6, 10), preview=True, save_output=False)
 
     # for test_img in glob.glob('test_images/*.jpg'):
     #     img = mpimg.imread(test_img)
