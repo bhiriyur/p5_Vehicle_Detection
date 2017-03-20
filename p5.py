@@ -593,7 +593,11 @@ class VehicleDetector(object):
 if __name__ == '__main__':
     # Load video and call pipeline
     V = VehicleDetector('project_video.mp4')
-    V.classify(load_file='classifier.pkl', C=0.001)
+    V.classify(load_file='classifier.pkl',C=0.001)
+
+    # V.colorspace = 'YCrCb'
+    # V.hog_channel = 2
+    # V.classify(C=0.0001)
 
     V.algo = 'subsample'
     V.heat_threshold = 15
@@ -602,11 +606,11 @@ if __name__ == '__main__':
     # V.scale = 1.2
 
     # V.video_process(start_stop=None, preview=False, save_output=True)
-    V.video_process(start_stop=(6, 10), preview=True, save_output=False)
+    # V.video_process(start_stop=(6, 10), preview=True, save_output=False)
 
-    # for test_img in glob.glob('test_images/*.jpg'):
-    #     img = mpimg.imread(test_img)
-    #     print(test_img)
-    #     out = V.find_cars(img, scale=1.0)
-    #     plt.imshow(out)
-    #     plt.show()
+    for test_img in glob.glob('test_images/*.jpg'):
+        img = mpimg.imread(test_img)
+        print(test_img)
+        out = V.find_cars_subsample(img, scale=1.0)
+        cv2.imshow(test_img, out)
+        cv2.waitKey(1000)
