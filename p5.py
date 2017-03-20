@@ -5,6 +5,7 @@ import time
 
 import cv2
 import matplotlib.image as mpimg
+import matplotlib.pyplot as plt
 import numpy as np
 from moviepy.editor import VideoFileClip
 from scipy.ndimage.measurements import label
@@ -364,6 +365,78 @@ class VehicleDetector(object):
 
         return diag_window
 
+    def limit_scale(self):
+        """Set the x/y start/stop based on scale"""
+        if self.scale <= 1.2:
+            self.ystart = 400
+            self.ystop = 500
+        elif self.scale <= 1.5:
+            self.ystart = 400
+            self.ystop = 550
+        elif self.scale <= 2.0:
+            self.ystart = 400
+            self.ystop = 650
+        else:
+            self.ystart = 400
+            self.ystop = 750
+
+    def draw_subsample_windows(self, img, scale=None):
+        draw_img = np.copy(img)
+        img = img.astype(np.float32) / 255
+
+        if scale is None:
+            scale = self.scale
+
+        img_tosearch = img[self.ystart:self.ystop, :, :]
+        ctrans_tosearch = img_tosearch #convert_color(img_tosearch, "RGB2{}".format(self.colorspace))
+        if scale != 1:
+            imshape = ctrans_tosearch.shape
+            ctrans_tosearch = cv2.resize(ctrans_tosearch, (np.int(imshape[1] / scale),
+                                                           np.int(imshape[0] / scale)))
+
+        ch1 = ctrans_tosearch[:, :, 0]
+        ch2 = ctrans_tosearch[:, :, 1]
+        ch3 = ctrans_tosearch[:, :, 2]
+
+        # Define blocks and steps as above
+        nxblocks = (ch1.shape[1] // self.pixels_per_cell) - 1
+        nyblocks = (ch1.shape[0] // self.pixels_per_cell) - 1
+        # nfeat_per_block = self.orient * self.cells_per_block ** 2
+
+        # 64 was the orginal sampling rate, with 8 cells and 8 pix per cell
+        window = 64
+        nblocks_per_window = (window // self.pixels_per_cell) - 1
+        nxsteps = (nxblocks - nblocks_per_window) // self.cells_per_step
+        nysteps = (nyblocks - nblocks_per_window) // self.cells_per_step
+
+        bbox_list = []
+        for xb in range(nxsteps):
+            for yb in range(nysteps):
+                ypos = yb * self.cells_per_step
+                xpos = xb * self.cells_per_step
+
+                xleft = xpos * self.pixels_per_cell
+                ytop = ypos * self.pixels_per_cell
+
+                xbox_left = np.int(xleft * scale)
+                ytop_draw = np.int(ytop * scale)
+                win_draw = np.int(window * scale)
+                bbox_list.append([(xbox_left, ytop_draw + self.ystart),
+                                  (xbox_left + win_draw, ytop_draw + win_draw + self.ystart)])
+
+                color = (int(np.random.randint(0, 255, 1)),
+                         int(np.random.randint(0, 255, 1)),
+                         int(np.random.randint(0, 255, 1)),)
+                cv2.rectangle(draw_img,(xbox_left, ytop_draw + self.ystart),
+                              (xbox_left + win_draw, ytop_draw + win_draw + self.ystart), color=color, thickness=2)
+
+        print("Steps Nx = {}, Ny = {}, nblocks = {}".format(nxsteps, nysteps, nblocks_per_window))
+        print("Num bboxes = {}".format(len(bbox_list)))
+        plt.figure(figsize=(12, 10))
+        plt.imshow(draw_img)
+        plt.show()
+
+
     def find_cars_subsample_multiscale(self, img, scales=(1.0, 1.2, 1.5, 2.0)):
         bbox_list = []
         draw_img = np.copy(img)
@@ -372,12 +445,14 @@ class VehicleDetector(object):
         diag_window = self.heatmap_filter(draw_img, bbox_list)
         return diag_window
 
-    def find_cars_subsample(self, img, scale=None, bbox_list=None):
+    def find_cars_subsample(self, img, scale=None, bbox_list=None, heat_filter=True):
         draw_img = np.copy(img)
         img = img.astype(np.float32) / 255
 
         if scale is None:
             scale = self.scale
+
+        self.limit_scale()
 
         if bbox_list is None:
             bbox_list = []
@@ -455,7 +530,13 @@ class VehicleDetector(object):
         if sendbbox:
             return bbox_list
         else:
-            diag_window = self.heatmap_filter(draw_img, bbox_list)
+            if heat_filter:
+                diag_window = self.heatmap_filter(draw_img, bbox_list)
+            else:
+                heat = np.zeros_like(img[:, :, 0]).astype(np.float)
+                heat = add_heat(heat, bbox_list)
+                labels = label(heat)
+                diag_window = self.draw_labeled_bboxes(draw_img, labels=labels)
             return diag_window
 
     def heatmap_filter(self, img, bbox_list):
@@ -583,7 +664,7 @@ class VehicleDetector(object):
             white_clip.preview(fps=25)
 
         if save_output:
-            outfile = self.vidfile.split('.')[0] + '_out.mp4'
+            outfile = self.vidfile.split('.')[0] + '_out_new.mp4'
             white_clip.write_videofile(outfile, audio=False)
 
 
@@ -602,15 +683,20 @@ if __name__ == '__main__':
     V.algo = 'subsample'
     V.heat_threshold = 15
     # Below options only matters if V.algo == 'subsample'
-    V.cells_per_step = 2
-    # V.scale = 1.2
+    # V.cells_per_step = 2
+    # V.scale = 3.0
+    # V.limit_scale()
 
-    # V.video_process(start_stop=None, preview=False, save_output=True)
-    # V.video_process(start_stop=(6, 10), preview=True, save_output=False)
+    V.video_process(start_stop=None, preview=False, save_output=True)
+    # V.video_process(start_stop=(12, 16), preview=True, save_output=False)
 
-    for test_img in glob.glob('test_images/*.jpg'):
-        img = mpimg.imread(test_img)
-        print(test_img)
-        out = V.find_cars_subsample(img, scale=1.0)
-        cv2.imshow(test_img, out)
-        cv2.waitKey(1000)
+    # for test_img in glob.glob('test_images/test5.jpg'):
+    #     img = mpimg.imread(test_img)
+    #     print(test_img)
+    #     V.frameid = 0
+    #     V.draw_subsample_windows(img)
+    #     # out = V.find_cars_subsample(img, scale=1.2, heat_filter=False)
+    #     # plt.figure(figsize=(10, 6))
+    #     # plt.imshow(out)
+    #     # plt.title(test_img)
+    #     # plt.show()
