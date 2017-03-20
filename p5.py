@@ -428,13 +428,19 @@ class VehicleDetector(object):
                          int(np.random.randint(0, 255, 1)),
                          int(np.random.randint(0, 255, 1)),)
                 cv2.rectangle(draw_img,(xbox_left, ytop_draw + self.ystart),
-                              (xbox_left + win_draw, ytop_draw + win_draw + self.ystart), color=color, thickness=2)
+                              (xbox_left + win_draw, ytop_draw + win_draw + self.ystart), color=color, thickness=1)
+
+        cv2.rectangle(draw_img,(xbox_left, ytop_draw + self.ystart),
+                      (xbox_left + win_draw, ytop_draw + win_draw + self.ystart), color=(255, 0, 0), thickness=6)
 
         print("Steps Nx = {}, Ny = {}, nblocks = {}".format(nxsteps, nysteps, nblocks_per_window))
         print("Num bboxes = {}".format(len(bbox_list)))
-        plt.figure(figsize=(12, 10))
+        fig=plt.figure(figsize=(12, 10))
         plt.imshow(draw_img)
-        plt.show()
+        # plt.show()
+
+        return fig
+
 
 
     def find_cars_subsample_multiscale(self, img, scales=(1.0, 1.2, 1.5, 2.0)):

@@ -36,7 +36,7 @@ Further details of the project implementation are provided below (following the 
 This project is hosted On [Github](https://github.com/bhiriyur/p5_Vehicle_Detection).
 
 
-## [Rubric](https://review.udacity.com/#!/rubrics/513/view) Points
+### [Rubric](https://review.udacity.com/#!/rubrics/513/view) Points
 ###Here I will consider the rubric points individually and describe how I addressed each point in my implementation.  
 
 ---
@@ -239,6 +239,19 @@ For the final video pipeline, a multiscale approach using the method reproduced 
 
 ####2. Show some examples of test images to demonstrate how your pipeline is working.  What did you do to optimize the performance of your classifier?
 
+**Classifier Performance**
+
+Some details of optimizing the classifier and improving its accuracy are provided above. Here are a couple of images showing the classifier performance on a couple of car and non-car images.
+ 
+**Histogram of Oriented Gradients**
+**Color Histogram**
+**Spatial Histogram**
+**Normalized Feature Vector**
+**Search Windows**
+**Heatmap**
+**Performance on test image**
+
+
 ---
 
 ### Video Implementation
@@ -252,7 +265,43 @@ Here is a link to my video result for the project video.
 
 ####2. Describe how (and identify where in your code) you implemented some kind of filter for false positives and some method for combining overlapping bounding boxes.
 
+To filter frame-to-frame identification of cars and reduce false pasitives to a minimum, I implemented a ```heatmap_filter``` method that saves a copy of the heatmap from 10 frames (summed across all scales) and then apply a threshold  on the cumulative heatmap. Using the ```label``` method from  ```scipy.ndmeasurements```, I aggregate the bounding boxes and finally plot the result on the original image. In the video, the bottom left portion of the diagnostic screen shows the final heatmap used.
 
+```python
+def heatmap_filter(self, img, bbox_list):
+
+    heat = np.zeros_like(img[:, :, 0]).astype(np.float)
+    draw_img = np.copy(img)
+
+    # Add heat to each box in box list
+    heat = add_heat(heat, bbox_list)
+
+    ####################################################
+    # Apply temporal filter
+    ####################################################
+    if self.frameid == 0:
+        shape = (heat.shape[0], heat.shape[1], self.num_heatmaps)
+        self.saved_heatmaps = np.zeros(shape)
+
+    idx = self.frameid % self.num_heatmaps
+    self.frameid += 1
+    self.saved_heatmaps[:, :, idx] = heat
+
+    avg_heat = np.sum(self.saved_heatmaps, axis=2)
+
+    # Apply threshold to help remove false positives
+    avg_heat_thres = apply_threshold(avg_heat, self.heat_threshold)
+
+    # Find final boxes from heatmap using label function
+    labels = label(avg_heat_thres)
+
+    draw_img = self.draw_labeled_bboxes(draw_img, labels)
+
+    # Build diag-screen
+    draw_img = diag_screen(draw_img, heatmap_img)
+
+    return draw_img
+```
 
 ---
 
@@ -260,4 +309,10 @@ Here is a link to my video result for the project video.
 
 ####1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
 
+During the course of this project, I learned a lot about selecting appropriate quantities to represent in my feature vector - from histogram of oriented gradients to color and spatial histograms. There was a lot of trial and error involved in selecting the right hyperparameters that provide smooth and robust performance for this problem. I also tried a couple of off-the-shelf detection algorithms (e.g. ```haar_classifier``` [link](https://github.com/andrewssobral/vehicle_detection_haarcascades)) but the results were not great out of the box. The [haar cascading classifier](http://docs.opencv.org/2.4/modules/objdetect/doc/cascade_classification.html) had lot of false positives  and I was not sure how their multiscale cascading classifier was trained.
 
+The classifier has been trained only on certain car images and other vehicles (motorcycles, trucks etc) would likely be misclassified. Also the scales and the regions of interest have been more-or-less hard-coded and will likely not work in a generic situation. Also the temporal filter has been optimized for the project video and will likely fail if the vehicle speeds are vastly different.  
+
+I would like to further explore the haar classifier and retraining the underlying cascading classifier and apply the heatmap thresholds to see how that works. Also in future, I would like to attempt using a DNN to find the bounding boxes directly (somewhat like the [YOLO](https://pjreddie.com/darknet/yolo/) approach). I would also like to attempt testing this pipeline on other videos that include heterogenous traffic.   
+
+Currently my pipeline is quite slow (on account of using a long feature vector and multiple closely overlapping search windows) and it might not be suitable for real-time detection at a high frame-rate. I will attempt to improve the performance by adjusting regions of interest with scales (my initial attempt did not produce as good a result as the submission video).
