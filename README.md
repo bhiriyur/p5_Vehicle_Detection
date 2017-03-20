@@ -16,15 +16,12 @@ The goals / steps of this project are the following:
 [//]: # (TODO: Update Images) 
 
 [//]: # (Image References)
-[image1]: ./examples/car_not_car.png
-[image2]: ./examples/HOG_example.jpg
-[image3]: ./examples/sliding_windows.jpg
-[image4]: ./examples/sliding_window.jpg
-[image5]: ./examples/bboxes_and_heat.png
-[image6]: ./examples/labels_map.png
-[image7]: ./examples/output_bboxes.png
-[video1]: ./project_video.mp4
-
+[image1]: ./output_images/figure_1.png
+[image2]: ./output_images/figure_2.png
+[image3]: ./output_images/figure_3.png
+[image4]: ./output_images/figure_4.png
+[image5]: ./output_images/figure_5.png
+[image6]: ./output_images/figure_6.png
 
 ### Submission Summary
 * The file **p5.py** contains the main class **VehicleDetector** and various supporting functions implemented in this project. 
@@ -242,14 +239,20 @@ For the final video pipeline, a multiscale approach using the method reproduced 
 **Classifier Performance**
 
 Some details of optimizing the classifier and improving its accuracy are provided above. Here are a couple of images showing the classifier performance on a couple of car and non-car images.
- 
-**Histogram of Oriented Gradients**
-**Color Histogram**
-**Spatial Histogram**
+
+![classifier-performace][image1]
+
 **Normalized Feature Vector**
+![Feature Vector][image2]
+
+
 **Search Windows**
-**Heatmap**
-**Performance on test image**
+![Windows1][image3]
+![Windows2][image4]
+![Windows3][image5]
+
+**Heatmap and Performance**
+![Performace][image6]
 
 
 ---

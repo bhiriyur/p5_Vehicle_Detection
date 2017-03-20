@@ -458,7 +458,7 @@ class VehicleDetector(object):
         if scale is None:
             scale = self.scale
 
-        self.limit_scale()
+        # self.limit_scale()
 
         if bbox_list is None:
             bbox_list = []
@@ -621,6 +621,8 @@ class VehicleDetector(object):
             # Define a bounding box based on min/max x and y
             bbox = ((np.min(nonzerox), np.min(nonzeroy)), (np.max(nonzerox), np.max(nonzeroy)))
             new_bboxes.append(bbox)
+
+            self.saved_bboxes = new_bboxes
 
             if self.bbox_filter(bbox):
                 # Draw the box on the image
