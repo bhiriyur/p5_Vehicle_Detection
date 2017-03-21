@@ -32,20 +32,16 @@ Further details of the project implementation are provided below (following the 
 
 This project is hosted On [Github](https://github.com/bhiriyur/p5_Vehicle_Detection).
 
-
-### [Rubric](https://review.udacity.com/#!/rubrics/513/view) Points
-###Here I will consider the rubric points individually and describe how I addressed each point in my implementation.  
-
 ---
-###Writeup / README
+### Writeup / README
 
-####1. Provide a Writeup / README that includes all the rubric points and how you addressed each one.  You can submit your writeup as markdown or pdf.  [Here](https://github.com/udacity/CarND-Vehicle-Detection/blob/master/writeup_template.md) is a template writeup for this project you can use as a guide and a starting point.  
+#### 1. Provide a Writeup / README that includes all the rubric points and how you addressed each one.  You can submit your writeup as markdown or pdf.  [Here](https://github.com/udacity/CarND-Vehicle-Detection/blob/master/writeup_template.md) is a template writeup for this project you can use as a guide and a starting point.  
 
 I am using the write-up template provided. Here it is!
 
-###Histogram of Oriented Gradients (HOG)
+### Histogram of Oriented Gradients (HOG)
 
-####1. Explain how (and identify where in your code) you extracted HOG features from the training images.
+#### 1. Explain how (and identify where in your code) you extracted HOG features from the training images.
 
 The full feature list that is used by the classification algorithm uses all of the following:
 1. HOG features (extracted from a static method ```get_hog_featres``` reproduced below:
@@ -95,7 +91,7 @@ def color_hist(img, nbins=32):  # bins_range=(0, 256)
 
 All of the above were called by a single method called ```extract_features``` (of class ```VehicleDetector```) to build the full feature list for classification. 
 
-####2. Explain how you settled on your final choice of HOG parameters.
+#### 2. Explain how you settled on your final choice of HOG parameters.
 
 After much experimentation, the following parameter values were chosen for all of the above feature selection and were found to work best:
 
@@ -111,7 +107,7 @@ After much experimentation, the following parameter values were chosen for all o
 
 As seen above, the colorspace **YCrCb** was used with all three channels. This of course made the feature vector of length **6108** and thereby increased the processing time for each frame by a significant amount, however the classification test accuracy seemed to be quite high using all of these parameters and so they were all retained for the final pipeline.
 
-####3. Describe how (and identify where in your code) you trained a classifier using your selected HOG features (and color features if you used them).
+#### 3. Describe how (and identify where in your code) you trained a classifier using your selected HOG features (and color features if you used them).
 
 The ```classify``` method of the ```VehicleDetector``` class implements the classification pipeline. A linear support vector machine is used with the aforementioned feature vectors. The training set consists of 8792 car images and 8968 non car images. The entire dataset was divided into training set (80%) and test set (20%) and the results of the classifier training and validation are shown below:
 
@@ -131,9 +127,9 @@ For these 10 labels:  [ 0.  1.  1.  0.  1.  1.  1.  1.  1.  0.]
 
 As noted above, the test accuracy is extremely high at 99.32% and I used a low value of 0.001 for the penalty parameter **C** of the LinearSVC to keep the decision boundary relatively smooth. The classifier and the normalizer were stored in a pickle file when used for the actual pipeline.
 
-###Sliding Window Search
+### Sliding Window Search
 
-####1. Describe how (and identify where in your code) you implemented a sliding window search.  How did you decide what scales to search and how much to overlap windows?
+#### 1. Describe how (and identify where in your code) you implemented a sliding window search.  How did you decide what scales to search and how much to overlap windows?
 A HOG subsampling approach was used to find the location of the cars within an image. This approach was implemented in the method ```find_cars_subsample```. In this method, the hog features for the entire image was extracted once for a given scale. From these features, subsampling was done for windows of size 64 x 64 (size of the training images for classifier) and passed through to the classifier for prediction.
 
 ```python
@@ -234,7 +230,7 @@ For the final video pipeline, a multiscale approach using the method reproduced 
         return diag_window
 ```
 
-####2. Show some examples of test images to demonstrate how your pipeline is working.  What did you do to optimize the performance of your classifier?
+#### 2. Show some examples of test images to demonstrate how your pipeline is working.  What did you do to optimize the performance of your classifier?
 
 **Classifier Performance**
 
@@ -258,14 +254,14 @@ Finally, the images below show the heatmap following identification (at scale = 
 
 ### Video Implementation
 
-####1. Provide a link to your final video output.  Your pipeline should perform reasonably well on the entire project video (somewhat wobbly or unstable bounding boxes are ok as long as you are identifying the vehicles most of the time with minimal false positives.)
+#### 1. Provide a link to your final video output.  Your pipeline should perform reasonably well on the entire project video (somewhat wobbly or unstable bounding boxes are ok as long as you are identifying the vehicles most of the time with minimal false positives.)
 
 Here is a link to my video result for the project video.
 
 [![Video](http://img.youtube.com/vi/h0HUkiVbQqw/0.jpg)](http://www.youtube.com/watch?v=h0HUkiVbQqw "Advanced Lane Finding")
 
 
-####2. Describe how (and identify where in your code) you implemented some kind of filter for false positives and some method for combining overlapping bounding boxes.
+#### 2. Describe how (and identify where in your code) you implemented some kind of filter for false positives and some method for combining overlapping bounding boxes.
 
 To filter frame-to-frame identification of cars and reduce false pasitives to a minimum, I implemented a ```heatmap_filter``` method that saves a copy of the heatmap from 10 frames (summed across all scales) and then apply a threshold  on the cumulative heatmap. Using the ```label``` method from  ```scipy.ndmeasurements```, I aggregate the bounding boxes and finally plot the result on the original image. In the video, the bottom left portion of the diagnostic screen shows the final heatmap used.
 
@@ -309,7 +305,7 @@ def heatmap_filter(self, img, bbox_list):
 
 ###Discussion
 
-####1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
+#### 1. Briefly discuss any problems / issues you faced in your implementation of this project.  Where will your pipeline likely fail?  What could you do to make it more robust?
 
 During the course of this project, I learned a lot about selecting appropriate quantities to represent in my feature vector - from histogram of oriented gradients to color and spatial histograms. There was a lot of trial and error involved in selecting the right hyperparameters that provide smooth and robust performance for this problem. I also tried a couple of off-the-shelf detection algorithms (e.g. ```haar_classifier``` [link](https://github.com/andrewssobral/vehicle_detection_haarcascades)) but the results were not great out of the box. The [haar cascading classifier](http://docs.opencv.org/2.4/modules/objdetect/doc/cascade_classification.html) had lot of false positives  and I was not sure how their multiscale cascading classifier was trained.
 
