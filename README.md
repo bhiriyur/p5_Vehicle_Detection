@@ -318,3 +318,5 @@ The classifier has been trained only on certain car images and other vehicles (m
 I would like to further explore the haar classifier and retraining the underlying cascading classifier and apply the heatmap thresholds to see how that works. Also in future, I would like to attempt using a DNN to find the bounding boxes directly (somewhat like the [YOLO](https://pjreddie.com/darknet/yolo/) approach). I would also like to attempt testing this pipeline on other videos that include heterogenous traffic.   
 
 Currently my pipeline is quite slow (on account of using a long feature vector and multiple closely overlapping search windows) and it might not be suitable for real-time detection at a high frame-rate. I will attempt to improve the performance by adjusting regions of interest with scales (my initial attempt did not produce as good a result as the submission video).
+
+Another item on my todo list is to merge the pipelines from Project 4 with this pipeline so that lane-detection and vehicle detection are done simultaneously.
