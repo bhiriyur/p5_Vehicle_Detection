@@ -242,8 +242,11 @@ The image below shows a sample feature vector:
 ![Feature Vector][image2]
 
 The following series of images show the search windows at different scales. It may be noted again that the efficiency can be improved by limiting the search areas for the smaller scales to be in the center portion of the image alone, however this optimization will be taken up at a later time
+
 ![Windows1][image3]
+
 ![Windows2][image4]
+
 ![Windows3][image5]
 
 Finally, the images below show the heatmap following identification (at scale = 2.0). The heatmaps from various scales are accumulated and further temporal filtering (by summing across 10 frames and thresholding) is adopted as described below. 
